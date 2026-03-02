@@ -18,7 +18,7 @@ VALVE_ICON_COLOR = "purple"
 LETTER_DASH_ICON_URL = "http://maps.google.com/mapfiles/kml/shapes/flag.png"
 LETTER_DASH_ICON_COLOR = "red"
 
-# UPDATED: blu-circle icon corresponds to blue, not yellow
+# blu-circle icon corresponds to blue
 DEFAULT_AGM_ICON_URL = "http://maps.google.com/mapfiles/kml/paddle/blu-circle.png"
 DEFAULT_AGM_ICON_COLOR = "blue"
 
@@ -156,22 +156,26 @@ def classify_agm(name: str) -> Tuple[str, str, str]:
     """
     Determine AGM icon URL, icon color, and text symbol based on the name.
     Rules:
-      - Contains 'valve' (case-insensitive): purple triangle
+      - Contains 'valve' or 'mlv' (case-insensitive): purple triangle
       - Starts with letter(s) + '-' : red flag
       - Otherwise (has any word/letter): blue dot
     Returns (icon_url, icon_color, symbol_text).
     """
     lower_name = name.lower()
 
-    if "valve" in lower_name:
+    # Valve / MLV rule
+    if "valve" in lower_name or "mlv" in lower_name:
         return VALVE_ICON_URL, VALVE_ICON_COLOR, "purple triangle"
 
+    # Letter-dash prefix rule, e.g., "A-123", "AB-01", etc.
     if re.match(r"^[A-Za-z]+-", name.strip()):
         return LETTER_DASH_ICON_URL, LETTER_DASH_ICON_COLOR, "red flag"
 
+    # Default: any name that has a letter is treated as "word in the name"
     if re.search(r"[A-Za-z]", name):
         return DEFAULT_AGM_ICON_URL, DEFAULT_AGM_ICON_COLOR, "blue dot"
 
+    # Fallback
     return DEFAULT_AGM_ICON_URL, DEFAULT_AGM_ICON_COLOR, "blue dot"
 
 
@@ -266,7 +270,7 @@ def extract_data(kml_text: str):
             if not coords:
                 continue
 
-            # TXT: begin line marker (lowercase as requested)
+            # TXT: begin line marker
             ss_access_txt_lines.append(("begin line", ""))
 
             for lat, lon in coords:
@@ -391,7 +395,7 @@ def main():
         - **Map Notes**: extract named placemarks with icon
           `http://www.earthpoint.us/Dots/GoogleEarth/pal3/icon62.png`
           into `Map Notes.txt` and `Map Notes.csv`.
-        - **SS provided access**: extract all LineStrings into
+        - **SS provided access**: extract LineStrings into
           `SS provided access.txt` and `SS provided access.csv`
           (icon = `none`, linestring color = `blue`).
         - **SS provided AGMs**: extract other named placemarks into
