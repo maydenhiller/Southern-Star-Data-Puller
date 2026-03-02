@@ -18,17 +18,9 @@ VALVE_ICON_COLOR = "purple"
 LETTER_DASH_ICON_URL = "http://maps.google.com/mapfiles/kml/shapes/flag.png"
 LETTER_DASH_ICON_COLOR = "red"
 
+# UPDATED: blu-circle icon corresponds to blue, not yellow
 DEFAULT_AGM_ICON_URL = "http://maps.google.com/mapfiles/kml/paddle/blu-circle.png"
-DEFAULT_AGM_ICON_COLOR = "yellow"
-
-# KML color codes that will be treated as "pink" LineStrings.
-# KML colors are in aabbggrr format. These are reasonable pink/magenta values.
-PINK_KML_COLORS = {
-    "ff00ffff",  # opaque magenta (a=ff, b=00, g=ff, r=ff)
-    "ffff00ff",  # opaque pinkish (a=ff, b=ff, g=00, r=ff)
-    "ff55ffff",
-    "ffff55ff",
-}
+DEFAULT_AGM_ICON_COLOR = "blue"
 
 
 def read_kml_from_upload(uploaded_file) -> str:
@@ -37,7 +29,6 @@ def read_kml_from_upload(uploaded_file) -> str:
     """
     filename = uploaded_file.name.lower()
 
-    # Ensure we can reread the file if Streamlit reruns
     uploaded_file.seek(0)
     data = uploaded_file.read()
 
@@ -129,15 +120,11 @@ def resolve_style(style_url: Optional[str],
     if style_url.startswith("#"):
         style_id = style_url[1:]
     else:
-        # styleUrl might be a full URL or something else; for safety, treat
-        # the last part after '#' as ID if present.
         if "#" in style_url:
             style_id = style_url.split("#", 1)[1]
         else:
-            # Not an internal style reference; we can't resolve this to a local style.
             return {"icon_href": None, "line_color": None}
 
-    # If the style id is actually a StyleMap id, map to a concrete Style id
     if style_id in stylemap_to_style:
         style_id = stylemap_to_style[style_id]
 
@@ -147,7 +134,6 @@ def resolve_style(style_url: Optional[str],
 def parse_coordinates(coord_text: str) -> List[Tuple[float, float]]:
     """
     Parse a KML <coordinates> string into a list of (lat, lon) tuples.
-    KML coordinates are "lon,lat[,alt]" separated by spaces/line breaks.
     """
     coords = []
     if not coord_text:
@@ -177,19 +163,15 @@ def classify_agm(name: str) -> Tuple[str, str, str]:
     """
     lower_name = name.lower()
 
-    # Valve rule
     if "valve" in lower_name:
         return VALVE_ICON_URL, VALVE_ICON_COLOR, "purple triangle"
 
-    # Letter-dash prefix rule, e.g., "A-123", "AB-01", etc.
     if re.match(r"^[A-Za-z]+-", name.strip()):
         return LETTER_DASH_ICON_URL, LETTER_DASH_ICON_COLOR, "red flag"
 
-    # Default: any name that has a letter is treated as "word in the name"
     if re.search(r"[A-Za-z]", name):
         return DEFAULT_AGM_ICON_URL, DEFAULT_AGM_ICON_COLOR, "blue dot"
 
-    # Fallback (no letters) — treat like default AGM for safety
     return DEFAULT_AGM_ICON_URL, DEFAULT_AGM_ICON_COLOR, "blue dot"
 
 
@@ -197,7 +179,7 @@ def extract_data(kml_text: str):
     """
     Extract:
       - Map Notes
-      - SS provided access (pink LineStrings)
+      - SS provided access (LineStrings)
       - SS provided AGMs
     Returns dicts with data for text/CSV generation.
     """
@@ -210,7 +192,7 @@ def extract_data(kml_text: str):
     map_notes_csv_rows = []  # Latitude, Longitude, Name, Icon, HideNameUntilMouseOver
 
     ss_access_csv_rows = []  # Latitude, Longitude, icon, linestring color
-    ss_access_txt_lines: List[Tuple[str, str]] = []  # (latitude, longitude or label)
+    ss_access_txt_lines: List[Tuple[str, str]] = []  # (latitude or label, longitude)
 
     agm_csv_rows = []  # Latitude, Longitude, Name, Icon, IconColor
     agm_txt_rows = []  # Latitude, Longitude, Name, Symbol
@@ -239,9 +221,8 @@ def extract_data(kml_text: str):
             if coords:
                 lat, lon = coords[0]
 
-                # Check if this is a Map Notes placemark
+                # Map Notes placemark
                 if icon_href == EARTHPOINT_ICON_URL:
-                    # Note text: prefer description, fall back to name
                     desc_el = pm.find("kml:description", KML_NS)
                     if desc_el is not None and desc_el.text and desc_el.text.strip():
                         note_text = desc_el.text.strip()
@@ -261,7 +242,7 @@ def extract_data(kml_text: str):
                         "HideNameUntilMouseOver": "TRUE",
                     })
                 else:
-                    # AGM placemark (named, but not Map Notes icon)
+                    # AGM placemark
                     icon_url, icon_color, symbol_text = classify_agm(name)
                     agm_csv_rows.append({
                         "Latitude": lat,
@@ -280,36 +261,21 @@ def extract_data(kml_text: str):
         # --- Second: check for LineStrings (SS provided access) ---
         line_el = pm.find(".//kml:LineString", KML_NS)
         if line_el is not None:
-            # Resolve line color: local style overrides referenced style
-            line_color = None
-            local_color_el = pm.find(".//kml:Style/kml:LineStyle/kml:color", KML_NS)
-            if local_color_el is not None and local_color_el.text:
-                line_color = local_color_el.text.strip().lower()
-            else:
-                line_color = style_info.get("line_color")
-
-            if not line_color:
-                continue
-
-            # Only pink LineStrings
-            if line_color.lower() not in PINK_KML_COLORS:
-                continue
-
             coords_el = line_el.find("kml:coordinates", KML_NS)
             coords = parse_coordinates(coords_el.text if coords_el is not None and coords_el.text else "")
             if not coords:
                 continue
 
-            # TXT: BEGIN LINE marker
-            ss_access_txt_lines.append(("BEGIN LINE", ""))
+            # TXT: begin line marker (lowercase as requested)
+            ss_access_txt_lines.append(("begin line", ""))
 
             for lat, lon in coords:
-                # CSV row
+                # CSV row: icon always "none", linestring color always "blue"
                 ss_access_csv_rows.append({
                     "Latitude": lat,
                     "Longitude": lon,
-                    "icon": "",
-                    "linestring color": line_color,
+                    "icon": "none",
+                    "linestring color": "blue",
                 })
                 # TXT row
                 ss_access_txt_lines.append((f"{lat}", f"{lon}"))
@@ -346,9 +312,7 @@ def rows_to_txt_bytes(headers: List[str], rows: List[Dict[str, object]]) -> byte
     Create a tab-separated .txt file from a list of dict rows.
     """
     buf = io.StringIO()
-    # Header
     buf.write("\t".join(headers) + "\n")
-    # Rows
     for row in rows:
         values = [str(row.get(h, "")) for h in headers]
         buf.write("\t".join(values) + "\n")
@@ -359,10 +323,9 @@ def ss_access_txt_to_bytes(lines: List[Tuple[str, str]]) -> bytes:
     """
     SS provided access TXT format:
       - two columns: latitude, longitude
-      - BEGIN LINE and END markers in the first column
+      - 'begin line' and 'END' markers in the first column
     """
     buf = io.StringIO()
-    # Header
     buf.write("latitude\tlongitude\n")
     for lat_str, lon_str in lines:
         buf.write(f"{lat_str}\t{lon_str}\n")
@@ -386,7 +349,7 @@ def build_output_files(extracted: Dict) -> Dict[str, bytes]:
         files["Map Notes.txt"] = txt_bytes
         files["Map Notes.csv"] = csv_bytes
 
-    # --- SS provided access (pink LineStrings) ---
+    # --- SS provided access (LineStrings) ---
     if extracted["ss_access_csv"]:
         csv_df = pd.DataFrame(extracted["ss_access_csv"])
         csv_bytes = dataframe_to_csv_bytes(csv_df)
@@ -424,10 +387,15 @@ def main():
     st.markdown(
         """
         Upload a `.kml` or `.kmz` file and this app will:
-        - **Map Notes**: extract named placemarks with icon `http://www.earthpoint.us/Dots/GoogleEarth/pal3/icon62.png`
+
+        - **Map Notes**: extract named placemarks with icon
+          `http://www.earthpoint.us/Dots/GoogleEarth/pal3/icon62.png`
           into `Map Notes.txt` and `Map Notes.csv`.
-        - **SS provided access**: extract **pink** LineStrings into `SS provided access.txt` and `SS provided access.csv`.
-        - **SS provided AGMs**: extract other named placemarks into `SS provided AGMs.txt` and `SS provided AGMs.csv`
+        - **SS provided access**: extract all LineStrings into
+          `SS provided access.txt` and `SS provided access.csv`
+          (icon = `none`, linestring color = `blue`).
+        - **SS provided AGMs**: extract other named placemarks into
+          `SS provided AGMs.txt` and `SS provided AGMs.csv`
           using your icon and color rules.
         """
     )
